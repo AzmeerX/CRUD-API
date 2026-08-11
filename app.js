@@ -1,40 +1,53 @@
-const express = require('express');
-const swaggerUi = require('swagger-ui-express');
-const swaggerDocument = require('./openapi.json');
+const express = require("express");
+const swaggerUi = require("swagger-ui-express");
+const Database = require("better-sqlite3");
+const swaggerDocument = require("./openapi.json");
 
 const app = express();
-app.use(express.json());
-app.use('/docs', swaggerUi.serve, swaggerUi.setup(swaggerDocument));
+app.use(express.json({ strict: false }));
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-let tasks = [
-  { id: 1, title: 'Buy milk', done: false },
-  { id: 2, title: 'Write report', done: true },
-  { id: 3, title: 'Walk the dog', done: false }
-];
+// Initialize database
+const db = new Database("tasks.db");
 
-function nextTaskId() {
-  return tasks.reduce((max, task) => Math.max(max, task.id), 0) + 1;
+// Create table if it doesn't exist
+db.exec(`
+  CREATE TABLE IF NOT EXISTS tasks (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    done BOOLEAN NOT NULL DEFAULT 0
+  )
+`);
+
+// Insert example tasks if table is empty
+const count = db.prepare("SELECT COUNT(*) as count FROM tasks").get();
+if (count.count === 0) {
+  const insert = db.prepare("INSERT INTO tasks (title, done) VALUES (?, ?)");
+  insert.run("Buy milk", 0);
+  insert.run("Write report", 1);
+  insert.run("Walk the dog", 0);
 }
 
-app.get('/', (req, res) => {
+app.get("/", (req, res) => {
   res.json({
-    name: 'Task API',
-    version: '1.0',
-    endpoints: ['/tasks']
+    name: "Task API",
+    version: "1.0",
+    endpoints: ["/tasks"],
   });
 });
 
-app.get('/health', (req, res) => {
-  res.json({ status: 'ok' });
+app.get("/health", (req, res) => {
+  res.json({ status: "ok" });
 });
 
-app.get('/tasks', (req, res) => {
+app.get("/tasks", (req, res) => {
+  const tasks = db.prepare("SELECT * FROM tasks").all();
   res.json(tasks);
 });
 
-app.get('/tasks/:id', (req, res) => {
+app.get("/tasks/:id", (req, res) => {
   const id = Number(req.params.id);
-  const task = tasks.find((item) => item.id === id);
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
 
   if (!task) {
     return res.status(404).json({ error: `Task ${id} not found` });
@@ -43,75 +56,86 @@ app.get('/tasks/:id', (req, res) => {
   return res.json(task);
 });
 
-app.post('/tasks', (req, res) => {
+app.post("/tasks", (req, res) => {
   const { title } = req.body || {};
 
-  if (typeof title !== 'string' || title.trim() === '') {
-    return res.status(400).json({ error: 'Title is required and must be a non-empty string' });
+  if (typeof title !== "string" || title.trim() === "") {
+    return res
+      .status(400)
+      .json({ error: "Title is required and must be a non-empty string" });
   }
 
-  const task = {
-    id: nextTaskId(),
-    title: title.trim(),
-    done: false
-  };
-
-  tasks.push(task);
+  const insert = db.prepare("INSERT INTO tasks (title, done) VALUES (?, ?)");
+  const result = insert.run(title.trim(), 0);
+  
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(result.lastInsertRowid);
   return res.status(201).json(task);
 });
 
-app.put('/tasks/:id', (req, res) => {
+app.put("/tasks/:id", (req, res) => {
   const id = Number(req.params.id);
-  const task = tasks.find((item) => item.id === id);
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
 
   if (!task) {
     return res.status(404).json({ error: `Task ${id} not found` });
   }
 
   const body = req.body;
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    return res.status(400).json({ error: 'Request body must be a JSON object' });
+  if (!body || typeof body !== "object" || Array.isArray(body)) {
+    return res
+      .status(400)
+      .json({ error: "Request body must be a JSON object" });
   }
 
-  const hasTitle = Object.prototype.hasOwnProperty.call(body, 'title');
-  const hasDone = Object.prototype.hasOwnProperty.call(body, 'done');
+  const hasTitle = Object.prototype.hasOwnProperty.call(body, "title");
+  const hasDone = Object.prototype.hasOwnProperty.call(body, "done");
 
   if (!hasTitle && !hasDone) {
-    return res.status(400).json({ error: 'Provide title or done in the request body' });
+    return res
+      .status(400)
+      .json({ error: "Provide title or done in the request body" });
   }
 
+  let title = task.title;
+  let done = task.done;
+
   if (hasTitle) {
-    if (typeof body.title !== 'string' || body.title.trim() === '') {
-      return res.status(400).json({ error: 'Title must be a non-empty string' });
+    if (typeof body.title !== "string" || body.title.trim() === "") {
+      return res
+        .status(400)
+        .json({ error: "Title must be a non-empty string" });
     }
-    task.title = body.title.trim();
+    title = body.title.trim();
   }
 
   if (hasDone) {
-    if (typeof body.done !== 'boolean') {
-      return res.status(400).json({ error: 'Done must be a boolean' });
+    if (typeof body.done !== "boolean") {
+      return res.status(400).json({ error: "Done must be a boolean" });
     }
-    task.done = body.done;
+    done = body.done;
   }
 
-  return res.json(task);
+  const doneValue = done ? 1 : 0;
+  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, doneValue, id);
+  const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+  return res.json(updated);
 });
 
-app.delete('/tasks/:id', (req, res) => {
+app.delete("/tasks/:id", (req, res) => {
   const id = Number(req.params.id);
-  const initialLength = tasks.length;
-  tasks = tasks.filter((task) => task.id !== id);
+  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
 
-  if (tasks.length === initialLength) {
+  if (!task) {
     return res.status(404).json({ error: `Task ${id} not found` });
   }
 
+  db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
   return res.status(204).send();
 });
 
 app.use((err, req, res, next) => {
-  if (err instanceof SyntaxError && err.status === 400 && 'body' in err) {
-    return res.status(400).json({ error: 'Invalid JSON body' });
+  if (err && err.type === "entity.parse.failed") {
+    return res.status(400).json({ error: "Invalid JSON body" });
   }
 
   return next(err);
