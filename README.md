@@ -65,11 +65,13 @@ To view or modify the database directly, download [DB Browser for SQLite](https:
 ### Example SQL queries
 
 List all tasks:
+
 ```sql
 SELECT * FROM tasks;
 ```
 
 Output:
+
 ```
 id | title        | done
 ---|--------------|-----
@@ -79,16 +81,19 @@ id | title        | done
 ```
 
 Show only completed tasks:
+
 ```sql
 SELECT * FROM tasks WHERE done = 1;
 ```
 
 Count tasks:
+
 ```sql
 SELECT COUNT(*) FROM tasks;
 ```
 
 Mark a task complete (in DB Browser):
+
 ```sql
 UPDATE tasks SET done = 1 WHERE id = 1;
 ```

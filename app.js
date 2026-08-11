@@ -67,8 +67,10 @@ app.post("/tasks", (req, res) => {
 
   const insert = db.prepare("INSERT INTO tasks (title, done) VALUES (?, ?)");
   const result = insert.run(title.trim(), 0);
-  
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(result.lastInsertRowid);
+
+  const task = db
+    .prepare("SELECT * FROM tasks WHERE id = ?")
+    .get(result.lastInsertRowid);
   return res.status(201).json(task);
 });
 
@@ -116,7 +118,11 @@ app.put("/tasks/:id", (req, res) => {
   }
 
   const doneValue = done ? 1 : 0;
-  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(title, doneValue, id);
+  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(
+    title,
+    doneValue,
+    id,
+  );
   const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
   return res.json(updated);
 });
