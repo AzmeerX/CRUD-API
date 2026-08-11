@@ -44,7 +44,23 @@ Content-Type: application/json; charset=utf-8
 
 ## Database
 
-The API stores tasks in `tasks.db`, a SQLite database file. Three example tasks are inserted on the first run. To view or modify the database directly, use a SQLite viewer like [DB Browser for SQLite](https://sqlitebrowser.org/).
+The API stores tasks in `tasks.db`, a SQLite database file located in the project root. The database is created automatically on the first run.
+
+### Database schema
+
+```sql
+CREATE TABLE tasks (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  title TEXT NOT NULL,
+  done BOOLEAN NOT NULL DEFAULT 0
+);
+```
+
+Three example tasks are inserted only on the first run. After that, the database persists and survives server restarts.
+
+### Viewing and querying the database
+
+To view or modify the database directly, download [DB Browser for SQLite](https://sqlitebrowser.org/) and open `tasks.db`.
 
 ### Example SQL queries
 
@@ -53,15 +69,31 @@ List all tasks:
 SELECT * FROM tasks;
 ```
 
+Output:
+```
+id | title        | done
+---|--------------|-----
+1  | Buy milk     | 0
+2  | Write report | 1
+3  | Walk the dog | 0
+```
+
 Show only completed tasks:
 ```sql
 SELECT * FROM tasks WHERE done = 1;
 ```
 
-Update all tasks to completed:
+Count tasks:
 ```sql
-UPDATE tasks SET done = 1;
+SELECT COUNT(*) FROM tasks;
 ```
+
+Mark a task complete (in DB Browser):
+```sql
+UPDATE tasks SET done = 1 WHERE id = 1;
+```
+
+After any manual database change, refresh your browser and the API will immediately show the updated data.
 
 ## Swagger UI
 
