@@ -1,32 +1,25 @@
 const express = require("express");
 const swaggerUi = require("swagger-ui-express");
-const Database = require("better-sqlite3");
+require("dotenv").config();
+const PostgresRepository = require("./postgresRepository");
 const swaggerDocument = require("./openapi.json");
 
 const app = express();
 app.use(express.json({ strict: false }));
 app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 
-// Initialize database
-const db = new Database("tasks.db");
+// Initialize repository
+const taskRepository = new PostgresRepository(process.env.DATABASE_URL);
 
-// Create table if it doesn't exist
-db.exec(`
-  CREATE TABLE IF NOT EXISTS tasks (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    done BOOLEAN NOT NULL DEFAULT 0
-  )
-`);
-
-// Insert example tasks if table is empty
-const count = db.prepare("SELECT COUNT(*) as count FROM tasks").get();
-if (count.count === 0) {
-  const insert = db.prepare("INSERT INTO tasks (title, done) VALUES (?, ?)");
-  insert.run("Buy milk", 0);
-  insert.run("Write report", 1);
-  insert.run("Walk the dog", 0);
-}
+// Initialize database on startup
+let initialized = false;
+taskRepository.initialize().then(() => {
+  initialized = true;
+  console.log("Database initialized");
+}).catch((err) => {
+  console.error("Failed to initialize database:", err);
+  process.exit(1);
+});
 
 app.get("/", (req, res) => {
   res.json({
@@ -40,103 +33,117 @@ app.get("/health", (req, res) => {
   res.json({ status: "ok" });
 });
 
-app.get("/tasks", (req, res) => {
-  const tasks = db.prepare("SELECT * FROM tasks").all();
-  res.json(tasks);
+app.get("/tasks", async (req, res) => {
+  try {
+    const tasks = await taskRepository.getAll();
+    res.json(tasks);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch tasks" });
+  }
 });
 
-app.get("/tasks/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+app.get("/tasks/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const task = await taskRepository.getById(id);
 
-  if (!task) {
-    return res.status(404).json({ error: `Task ${id} not found` });
+    if (!task) {
+      return res.status(404).json({ error: `Task ${id} not found` });
+    }
+
+    return res.json(task);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to fetch task" });
   }
-
-  return res.json(task);
 });
 
-app.post("/tasks", (req, res) => {
-  const { title } = req.body || {};
+app.post("/tasks", async (req, res) => {
+  try {
+    const { title } = req.body || {};
 
-  if (typeof title !== "string" || title.trim() === "") {
-    return res
-      .status(400)
-      .json({ error: "Title is required and must be a non-empty string" });
-  }
-
-  const insert = db.prepare("INSERT INTO tasks (title, done) VALUES (?, ?)");
-  const result = insert.run(title.trim(), 0);
-
-  const task = db
-    .prepare("SELECT * FROM tasks WHERE id = ?")
-    .get(result.lastInsertRowid);
-  return res.status(201).json(task);
-});
-
-app.put("/tasks/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-
-  if (!task) {
-    return res.status(404).json({ error: `Task ${id} not found` });
-  }
-
-  const body = req.body;
-  if (!body || typeof body !== "object" || Array.isArray(body)) {
-    return res
-      .status(400)
-      .json({ error: "Request body must be a JSON object" });
-  }
-
-  const hasTitle = Object.prototype.hasOwnProperty.call(body, "title");
-  const hasDone = Object.prototype.hasOwnProperty.call(body, "done");
-
-  if (!hasTitle && !hasDone) {
-    return res
-      .status(400)
-      .json({ error: "Provide title or done in the request body" });
-  }
-
-  let title = task.title;
-  let done = task.done;
-
-  if (hasTitle) {
-    if (typeof body.title !== "string" || body.title.trim() === "") {
+    if (typeof title !== "string" || title.trim() === "") {
       return res
         .status(400)
-        .json({ error: "Title must be a non-empty string" });
+        .json({ error: "Title is required and must be a non-empty string" });
     }
-    title = body.title.trim();
-  }
 
-  if (hasDone) {
-    if (typeof body.done !== "boolean") {
-      return res.status(400).json({ error: "Done must be a boolean" });
-    }
-    done = body.done;
+    const task = await taskRepository.create(title.trim());
+    return res.status(201).json(task);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to create task" });
   }
-
-  const doneValue = done ? 1 : 0;
-  db.prepare("UPDATE tasks SET title = ?, done = ? WHERE id = ?").run(
-    title,
-    doneValue,
-    id,
-  );
-  const updated = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
-  return res.json(updated);
 });
 
-app.delete("/tasks/:id", (req, res) => {
-  const id = Number(req.params.id);
-  const task = db.prepare("SELECT * FROM tasks WHERE id = ?").get(id);
+app.put("/tasks/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const task = await taskRepository.getById(id);
 
-  if (!task) {
-    return res.status(404).json({ error: `Task ${id} not found` });
+    if (!task) {
+      return res.status(404).json({ error: `Task ${id} not found` });
+    }
+
+    const body = req.body;
+    if (!body || typeof body !== "object" || Array.isArray(body)) {
+      return res
+        .status(400)
+        .json({ error: "Request body must be a JSON object" });
+    }
+
+    const hasTitle = Object.prototype.hasOwnProperty.call(body, "title");
+    const hasDone = Object.prototype.hasOwnProperty.call(body, "done");
+
+    if (!hasTitle && !hasDone) {
+      return res
+        .status(400)
+        .json({ error: "Provide title or done in the request body" });
+    }
+
+    let title = task.title;
+    let done = task.done;
+
+    if (hasTitle) {
+      if (typeof body.title !== "string" || body.title.trim() === "") {
+        return res
+          .status(400)
+          .json({ error: "Title must be a non-empty string" });
+      }
+      title = body.title.trim();
+    }
+
+    if (hasDone) {
+      if (typeof body.done !== "boolean") {
+        return res.status(400).json({ error: "Done must be a boolean" });
+      }
+      done = body.done;
+    }
+
+    const updated = await taskRepository.update(id, title, done);
+    return res.json(updated);
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to update task" });
   }
+});
 
-  db.prepare("DELETE FROM tasks WHERE id = ?").run(id);
-  return res.status(204).send();
+app.delete("/tasks/:id", async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    const task = await taskRepository.getById(id);
+
+    if (!task) {
+      return res.status(404).json({ error: `Task ${id} not found` });
+    }
+
+    await taskRepository.delete(id);
+    return res.status(204).send();
+  } catch (err) {
+    console.error(err);
+    res.status(500).json({ error: "Failed to delete task" });
+  }
 });
 
 app.use((err, req, res, next) => {
@@ -147,7 +154,7 @@ app.use((err, req, res, next) => {
   return next(err);
 });
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
 });

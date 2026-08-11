@@ -1,19 +1,49 @@
 # Task API
 
-A small Express-based CRUD API for managing tasks, with Swagger UI available at `/docs`. Tasks are persisted in a SQLite database.
+A small Express-based CRUD API for managing tasks, with Swagger UI available at `/docs`. Tasks are persisted in PostgreSQL running in Docker.
 
-## Why SQLite
+## Architecture: Repository Pattern
 
-SQLite is a lightweight, file-based database that requires no separate server. It's perfect for small projects and development. The database file (`tasks.db`) is created automatically on the first run.
+The API implements **repository pattern** to separate business logic from storage. This proves a critical architectural principle:
 
-## Install and run
+**All API routes remain unchanged** — only the storage layer changed from SQLite to PostgreSQL. The service never knows or cares where data comes from.
+
+- **Routes** (`app.js`): Identical to previous version
+- **Repository** (`postgresRepository.js`): Handles all database communication
+- **Dependency**: Injected at startup, swappable
+
+This is how real backends work: switch databases, switch repositories, routes stay the same.
+
+## Prerequisites
+
+- Docker Desktop (or Docker + Docker Compose)
+- 5432 port available (PostgreSQL)
+- 3000 port available (Node app)
+
+## Install and run (with Docker)
+
+```bash
+# Copy environment template
+cp .env.example .env
+
+# Start everything (Postgres + app)
+docker compose up
+```
+
+The API will be available at `http://localhost:3000` and Postgres at `localhost:5432`.
+
+### Local development (without Docker)
+
+If you want to run locally against a Docker Postgres:
 
 ```bash
 npm install
+docker run -e POSTGRES_PASSWORD=taskpass -e POSTGRES_DB=taskdb -e POSTGRES_USER=taskuser -p 5432:5432 postgres:15-alpine
+# In another terminal:
 npm start
 ```
 
-The server runs on `http://localhost:3000`. The database file `tasks.db` is created automatically in the project root on first run.
+The app reads `DATABASE_URL` from `.env` — update it if your Postgres is elsewhere.
 
 ## Endpoints
 
@@ -42,63 +72,60 @@ Content-Type: application/json; charset=utf-8
 {"id":1,"title":"Buy milk","done":false}
 ```
 
-## Database
+## Database & Persistence
 
-The API stores tasks in `tasks.db`, a SQLite database file located in the project root. The database is created automatically on the first run.
+### Architecture
 
-### Database schema
+Data persists across restarts:
 
+- **Docker:** PostgreSQL container uses a named volume (`postgres_data`). Container data survives restarts.
+- **Schema:** Created automatically on first run by `postgresRepository.js`
+- **Example data:** Three sample tasks inserted only if table is empty
+
+### Verify Persistence
+
+Create a task and verify it survives a restart:
+
+```bash
+# Start the stack
+docker compose up
+
+# In another terminal, create a task
+curl -X POST http://localhost:3000/tasks \
+  -H "Content-Type: application/json" \
+  -d '{"title":"Does this persist?"}'
+
+# Back in the docker terminal, press Ctrl+C to stop
+
+# Restart
+docker compose up
+
+# List tasks
+curl http://localhost:3000/tasks
+
+# Task is still there ✓ Postgres saved it to the volume
+```
+
+### Connect to Postgres Directly
+
+From your host machine:
+
+```bash
+psql postgresql://taskuser:taskpass@localhost:5432/taskdb
+```
+
+Inside psql:
 ```sql
-CREATE TABLE tasks (
-  id INTEGER PRIMARY KEY AUTOINCREMENT,
-  title TEXT NOT NULL,
-  done BOOLEAN NOT NULL DEFAULT 0
-);
+\dt  -- list tables
+SELECT * FROM tasks;  -- see all tasks
 ```
 
-Three example tasks are inserted only on the first run. After that, the database persists and survives server restarts.
-
-### Viewing and querying the database
-
-To view or modify the database directly, download [DB Browser for SQLite](https://sqlitebrowser.org/) and open `tasks.db`.
-
-### Example SQL queries
-
-List all tasks:
-
-```sql
-SELECT * FROM tasks;
-```
-
-Output:
-
-```
-id | title        | done
----|--------------|-----
-1  | Buy milk     | 0
-2  | Write report | 1
-3  | Walk the dog | 0
-```
-
-Show only completed tasks:
-
-```sql
-SELECT * FROM tasks WHERE done = 1;
-```
-
-Count tasks:
-
-```sql
-SELECT COUNT(*) FROM tasks;
-```
-
-Mark a task complete (in DB Browser):
-
-```sql
-UPDATE tasks SET done = 1 WHERE id = 1;
-```
-
-After any manual database change, refresh your browser and the API will immediately show the updated data.
+Or use a GUI like [DBeaver](https://dbeaver.io/) or [pgAdmin](https://www.pgadmin.org/) with:
+- Host: `localhost`
+- Port: `5432`
+- User: `taskuser`
+- Password: `taskpass`
+- Database: `taskdb`
 
 ## Swagger UI
 
