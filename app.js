@@ -13,13 +13,16 @@ const taskRepository = new PostgresRepository(process.env.DATABASE_URL);
 
 // Initialize database on startup
 let initialized = false;
-taskRepository.initialize().then(() => {
-  initialized = true;
-  console.log("Database initialized");
-}).catch((err) => {
-  console.error("Failed to initialize database:", err);
-  process.exit(1);
-});
+taskRepository
+  .initialize()
+  .then(() => {
+    initialized = true;
+    console.log("Database initialized");
+  })
+  .catch((err) => {
+    console.error("Failed to initialize database:", err);
+    process.exit(1);
+  });
 
 app.get("/", (req, res) => {
   res.json({

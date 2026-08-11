@@ -24,7 +24,7 @@ class PostgresRepository {
       if (result.rows[0].count === "0") {
         await client.query(
           "INSERT INTO tasks (title, done) VALUES ($1, $2), ($3, $4), ($5, $6)",
-          ["Buy milk", false, "Write report", true, "Walk the dog", false]
+          ["Buy milk", false, "Write report", true, "Walk the dog", false],
         );
       }
     } finally {
@@ -38,17 +38,16 @@ class PostgresRepository {
   }
 
   async getById(id) {
-    const result = await this.pool.query(
-      "SELECT * FROM tasks WHERE id = $1",
-      [id]
-    );
+    const result = await this.pool.query("SELECT * FROM tasks WHERE id = $1", [
+      id,
+    ]);
     return result.rows[0] || null;
   }
 
   async create(title) {
     const result = await this.pool.query(
       "INSERT INTO tasks (title, done) VALUES ($1, $2) RETURNING *",
-      [title, false]
+      [title, false],
     );
     return result.rows[0];
   }
@@ -56,7 +55,7 @@ class PostgresRepository {
   async update(id, title, done) {
     const result = await this.pool.query(
       "UPDATE tasks SET title = $1, done = $2 WHERE id = $3 RETURNING *",
-      [title, done, id]
+      [title, done, id],
     );
     return result.rows[0] || null;
   }
@@ -64,7 +63,7 @@ class PostgresRepository {
   async delete(id) {
     const result = await this.pool.query(
       "DELETE FROM tasks WHERE id = $1 RETURNING *",
-      [id]
+      [id],
     );
     return result.rows[0] || null;
   }
